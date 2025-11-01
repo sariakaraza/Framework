@@ -1,12 +1,17 @@
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.Map;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import util.ControllerScanner;
+import util.ControllerScanner.ScanResult;
 
 /**
  * This is the servlet that takes all incoming requests targeting the app - If
@@ -16,10 +21,16 @@ import jakarta.servlet.http.HttpServletResponse;
 public class FrontServlet extends HttpServlet {
 
     RequestDispatcher defaultDispatcher;
+    ScanResult scanResult = new ScanResult();
 
     @Override
     public void init() {
         defaultDispatcher = getServletContext().getNamedDispatcher("default");
+        scanResult = ControllerScanner.scan(getServletContext());
+        // debug : lister les mappings trouvés
+        for (Map.Entry<String, Method> e : scanResult.urlToMethod.entrySet()) {
+            System.out.println("Mapped URL: " + e.getKey() + " -> " + e.getValue().getDeclaringClass().getName() + "#" + e.getValue().getName());
+        }
     }
 
     @Override
@@ -36,10 +47,46 @@ public class FrontServlet extends HttpServlet {
 
         if (resourceExists) {
             defaultServe(req, res);
-        } else {
-            customServe(req, res);
+        } 
+        // else {
+        //     customServe(req, res);
+        // }
+
+        // nouveau comportement : si path correspond à un URLMapping, invoquer / afficher info
+        Method m = scanResult.urlToMethod.get(path);
+        if (m != null) {
+            Class<?> cls = m.getDeclaringClass();
+            boolean isController = scanResult.controllerClasses.contains(cls);
+
+            try {
+                res.setContentType("text/plain;charset=UTF-8");
+                try (PrintWriter out = res.getWriter()) {
+                    if (!isController) {
+                        out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
+                        return;
+                    }
+                    // instancier et invoquer la methode (suppose sans args)
+                    Object instance = cls.getDeclaredConstructor().newInstance();
+                    out.printf("Classe: %s%n", cls.getName());
+                    out.printf("Methode: %s%n", m.getName());
+                    try {
+                        m.setAccessible(true);
+                        m.invoke(instance);
+                    } catch (IllegalAccessException | InvocationTargetException ex) {
+                        out.println("Erreur invocation: " + ex.getMessage());
+                    }
+                }
+            } catch (Exception ex) {
+                throw new ServletException(ex);
+            }
+            return;
         }
+
+        // si aucune route connue, comportement personnalisé existant
+        customServe(req, res);
     }
+
+    
 
     private void customServe(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try (PrintWriter out = res.getWriter()) {
