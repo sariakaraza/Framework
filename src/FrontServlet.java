@@ -31,6 +31,8 @@ public class FrontServlet extends HttpServlet {
         for (Map.Entry<String, Method> e : scanResult.urlToMethod.entrySet()) {
             System.out.println("Mapped URL: " + e.getKey() + " -> " + e.getValue().getDeclaringClass().getName() + "#" + e.getValue().getName());
         }
+
+        getServletContext().setAttribute("scanResult", scanResult);
     }
 
     @Override
@@ -53,10 +55,11 @@ public class FrontServlet extends HttpServlet {
         // }
 
         // nouveau comportement : si path correspond à un URLMapping, invoquer / afficher info
-        Method m = scanResult.urlToMethod.get(path);
+        ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
+        Method m = scanResultContext.urlToMethod.get(path);
         if (m != null) {
             Class<?> cls = m.getDeclaringClass();
-            boolean isController = scanResult.controllerClasses.contains(cls);
+            boolean isController = scanResultContext.controllerClasses.contains(cls);
 
             try {
                 res.setContentType("text/plain;charset=UTF-8");
@@ -66,15 +69,15 @@ public class FrontServlet extends HttpServlet {
                         return;
                     }
                     // instancier et invoquer la methode (suppose sans args)
-                    Object instance = cls.getDeclaredConstructor().newInstance();
+                    // Object instance = cls.getDeclaredConstructor().newInstance();
                     out.printf("Classe: %s%n", cls.getName());
                     out.printf("Methode: %s%n", m.getName());
-                    try {
-                        m.setAccessible(true);
-                        m.invoke(instance);
-                    } catch (IllegalAccessException | InvocationTargetException ex) {
-                        out.println("Erreur invocation: " + ex.getMessage());
-                    }
+                    // try {
+                    //     m.setAccessible(true);
+                    //     m.invoke(instance);
+                    // } catch (IllegalAccessException | InvocationTargetException ex) {
+                    //     out.println("Erreur invocation: " + ex.getMessage());
+                    // }
                 }
             } catch (Exception ex) {
                 throw new ServletException(ex);
