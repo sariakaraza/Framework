@@ -69,15 +69,30 @@ public class FrontServlet extends HttpServlet {
                         return;
                     }
                     // instancier et invoquer la methode (suppose sans args)
-                    // Object instance = cls.getDeclaredConstructor().newInstance();
+                    Object instance = cls.getDeclaredConstructor().newInstance();
+                    
                     out.printf("Classe: %s%n", cls.getName());
                     out.printf("Methode: %s%n", m.getName());
-                    // try {
-                    //     m.setAccessible(true);
-                    //     m.invoke(instance);
-                    // } catch (IllegalAccessException | InvocationTargetException ex) {
-                    //     out.println("Erreur invocation: " + ex.getMessage());
-                    // }
+
+                    try {
+                        m.setAccessible(true); // permet d'appeler même si private
+                        Object result = m.invoke(instance);
+
+                        // afficher le retour si la méthode renvoie quelque chose
+                        // if (result != null) {
+                        //     out.printf("Résultat: %s%n", result.toString());
+                        // } else {
+                        //     out.println("Méthode invoquée avec succès (void)");
+                        // }
+
+                        if (result instanceof String) {
+                            out.printf("Methode string invoquee : %s", (String) result);
+                        } else {
+                            // out.println("Méthode invoquée (retour ignoré car non-String)");
+                        }
+                    } catch (IllegalAccessException | InvocationTargetException ex) {
+                        out.println("Erreur invocation: " + ex.getMessage());
+                    }
                 }
             } catch (Exception ex) {
                 throw new ServletException(ex);
