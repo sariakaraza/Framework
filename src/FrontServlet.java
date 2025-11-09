@@ -79,10 +79,16 @@ public class FrontServlet extends HttpServlet {
                         Object result = m.invoke(instance);
 
                         // afficher le retour si la méthode renvoie quelque chose
-                        if (result != null) {
-                            out.printf("Résultat: %s%n", result.toString());
+                        // if (result != null) {
+                        //     out.printf("Résultat: %s%n", result.toString());
+                        // } else {
+                        //     out.println("Méthode invoquée avec succès (void)");
+                        // }
+
+                        if (result instanceof String) {
+                            out.printf("Methode string invoquee : %s", (String) result);
                         } else {
-                            out.println("Méthode invoquée avec succès (void)");
+                            // out.println("Méthode invoquée (retour ignoré car non-String)");
                         }
                     } catch (IllegalAccessException | InvocationTargetException ex) {
                         out.println("Erreur invocation: " + ex.getMessage());
