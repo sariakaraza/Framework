@@ -2,18 +2,16 @@
 rm -rf build
 mkdir -p build
 
-# classpath (ajustez si nécessaire)
+# classpath (ajustez si besoin)
 CP="lib/servlet-api.jar"
 
-# 1) compiler les annotations d'abord
-javac -cp "$CP" -d build src/annotation/*.java
+# Compilation de tous les fichiers .java (dans src et sous-dossiers)
+echo "📦 Compilation des sources..."
+find src -name "*.java" > sources.txt
+javac -cp "$CP" -d build @sources.txt
 
-# 2) compiler les utilitaires (qui dépendent des annotations)
-javac -cp "$CP:build" -d build src/util/*.java
-
-# 3) compiler le reste des sources (FrontServlet, etc.)
-#    on compile tous les fichiers restants en une passe en ajoutant build au classpath
-javac -cp "$CP:build" -d build $(find src -maxdepth 1 -name "*.java")
-
-# 4) créer le jar
+# Création du JAR
+echo "🪄 Création du JAR framework-servlet.jar..."
 jar -cvf framework-servlet.jar -C build .
+
+echo "✅ Compilation terminée : framework-servlet.jar"

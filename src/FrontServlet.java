@@ -87,7 +87,19 @@ public class FrontServlet extends HttpServlet {
 
                         if (result instanceof String) {
                             out.printf("Methode string invoquee : %s", (String) result);
-                        } else {
+                        } 
+
+                        else if (result instanceof view.ModelView) {
+                            view.ModelView mv = (view.ModelView) result;
+                            String vue = mv.getView();
+
+                            // rediriger vers la page JSP
+                            RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
+                            dispatcher.forward(req, res);
+                            return;
+                        }
+
+                        else {
                             // out.println("Méthode invoquée (retour ignoré car non-String)");
                         }
                     } catch (IllegalAccessException | InvocationTargetException ex) {
