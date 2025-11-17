@@ -93,6 +93,9 @@ public class FrontServlet extends HttpServlet {
                             view.ModelView mv = (view.ModelView) result;
                             String vue = mv.getView();
 
+                            for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                                req.setAttribute(entry.getKey(), entry.getValue());
+                            }
                             // rediriger vers la page JSP
                             RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
                             dispatcher.forward(req, res);
