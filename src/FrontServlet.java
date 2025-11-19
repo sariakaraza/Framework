@@ -2,6 +2,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -95,7 +96,8 @@ public class FrontServlet extends HttpServlet {
         Method m = scanResultContext.urlToMethod.get(path);
         if (m == null) return false;
 
-        invokeAndRender(m, req, res, new Object[0]);
+        Object[] args = buildArgsFromRequest(m, req);
+        invokeAndRender(m, req, res, args);
         return true;
     }
 
@@ -184,6 +186,27 @@ public class FrontServlet extends HttpServlet {
         // fallback -> renvoyer la chaîne
         return val;
     }
+
+    private Object[] buildArgsFromRequest(Method m, HttpServletRequest req) {
+        Parameter[] params = m.getParameters();
+        Object[] args = new Object[params.length];
+
+        for (int i = 0; i < params.length; i++) {
+            Parameter p = params[i];
+
+            // Java garde le vrai nom du paramètre SEULEMENT si -parameters est activé
+            String paramName = p.getName();
+
+            // récupère la valeur que le formulaire envoie avec le même "name"
+            String rawValue = req.getParameter(paramName);
+
+            // conversion automatique en int, double, etc.
+            args[i] = convertString(rawValue, p.getType());
+        }
+
+        return args;
+    }
+
 
     private void customServe(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try (PrintWriter out = res.getWriter()) {
