@@ -8,7 +8,7 @@ CP="lib/servlet-api.jar"
 # Compilation de tous les fichiers .java (dans src et sous-dossiers)
 echo "📦 Compilation des sources..."
 find src -name "*.java" > sources.txt
-javac -cp "$CP" -d build @sources.txt
+javac -parameters -cp "$CP" -d build @sources.txt
 
 # Création du JAR
 echo "🪄 Création du JAR framework-servlet.jar..."
