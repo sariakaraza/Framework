@@ -3,8 +3,10 @@ package util;
 import jakarta.servlet.ServletContext;
 import java.io.File;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -16,6 +18,7 @@ public class ControllerScanner {
     public static class ScanResult {
         public final Map<String, Method> urlToMethod = new HashMap<>();
         public final Set<Class<?>> controllerClasses = new HashSet<>();
+        public final List<UrlPattern> patterns = new ArrayList<>();
     }
 
     public static ScanResult scan(ServletContext ctx) {
@@ -49,7 +52,12 @@ public class ControllerScanner {
                             URLMapping u = m.getAnnotation(URLMapping.class);
                             String path = u.value();
                             if (!path.startsWith("/")) path = "/" + path;
-                            result.urlToMethod.put(path, m);
+                            // result.urlToMethod.put(path, m);
+                            if (path.contains("{")) {
+                                result.patterns.add(new UrlPattern(path, m));
+                            } else {
+                                result.urlToMethod.put(path, m);
+                            }
                         }
                     }
                 } catch (ClassNotFoundException | NoClassDefFoundError e) {
