@@ -1,9 +1,10 @@
-
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import util.ControllerScanner;
 import util.ControllerScanner.ScanResult;
+import util.UrlPattern;
 
 /**
  * This is the servlet that takes all incoming requests targeting the app - If
@@ -31,95 +33,157 @@ public class FrontServlet extends HttpServlet {
         for (Map.Entry<String, Method> e : scanResult.urlToMethod.entrySet()) {
             System.out.println("Mapped URL: " + e.getKey() + " -> " + e.getValue().getDeclaringClass().getName() + "#" + e.getValue().getName());
         }
+        for (UrlPattern p : scanResult.patterns) {
+            System.out.println("Mapped PATTERN: " + p.rawPattern + " -> " + p.method.getDeclaringClass().getName() + "#" + p.method.getName());
+        }
 
         getServletContext().setAttribute("scanResult", scanResult);
     }
 
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
-        /**
-         * Example: 
-         * If URI is /app/folder/file.html 
-         * and context path is /app,
-         * then path = /folder/file.html
-         */
         String path = req.getRequestURI().substring(req.getContextPath().length());
-        
-        boolean resourceExists = getServletContext().getResource(path) != null;
+        // normaliser : si vide => "/"
+        if (path == null || path.isEmpty()) path = "/";
 
-        if (resourceExists) {
+        // 1) gérer la racine ("/")
+        if (handleRoot(path, req, res)) return;
+
+        // 2) si ressource statique existante, déléguer au default dispatcher
+        if (resourceExists(path)) {
             defaultServe(req, res);
-        } 
-        // else {
-        //     customServe(req, res);
-        // }
-
-        // nouveau comportement : si path correspond à un URLMapping, invoquer / afficher info
-        ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
-        Method m = scanResultContext.urlToMethod.get(path);
-        if (m != null) {
-            Class<?> cls = m.getDeclaringClass();
-            boolean isController = scanResultContext.controllerClasses.contains(cls);
-
-            try {
-                res.setContentType("text/plain;charset=UTF-8");
-                try (PrintWriter out = res.getWriter()) {
-                    if (!isController) {
-                        out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
-                        return;
-                    }
-                    // instancier et invoquer la methode (suppose sans args)
-                    Object instance = cls.getDeclaredConstructor().newInstance();
-                    
-                    out.printf("Classe: %s%n", cls.getName());
-                    out.printf("Methode: %s%n", m.getName());
-
-                    try {
-                        m.setAccessible(true); // permet d'appeler même si private
-                        Object result = m.invoke(instance);
-
-                        // afficher le retour si la méthode renvoie quelque chose
-                        // if (result != null) {
-                        //     out.printf("Résultat: %s%n", result.toString());
-                        // } else {
-                        //     out.println("Méthode invoquée avec succès (void)");
-                        // }
-
-                        if (result instanceof String) {
-                            out.printf("Methode string invoquee : %s", (String) result);
-                        } 
-
-                        else if (result instanceof view.ModelView) {
-                            view.ModelView mv = (view.ModelView) result;
-                            String vue = mv.getView();
-
-                            for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
-                                req.setAttribute(entry.getKey(), entry.getValue());
-                            }
-                            // rediriger vers la page JSP
-                            RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
-                            dispatcher.forward(req, res);
-                            return;
-                        }
-
-                        else {
-                            // out.println("Méthode invoquée (retour ignoré car non-String)");
-                        }
-                    } catch (IllegalAccessException | InvocationTargetException ex) {
-                        out.println("Erreur invocation: " + ex.getMessage());
-                    }
-                }
-            } catch (Exception ex) {
-                throw new ServletException(ex);
-            }
             return;
         }
 
-        // si aucune route connue, comportement personnalisé existant
+        // 3) vérifier correspondance exacte (urlToMethod)
+        if (handleExactMapping(path, req, res)) return;
+
+        // 4) vérifier patterns (ex: /test/{id})
+        if (handlePatternMapping(path, req, res)) return;
+
+        // 5) aucune route connue -> comportement personnalisé
         customServe(req, res);
     }
 
-    
+    // ...existing code...
+    private boolean resourceExists(String path) {
+        try {
+            return getServletContext().getResource(path) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // handle root: try index.html or index.jsp, otherwise show custom welcome (pas 404)
+    private boolean handleRoot(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        if (!"/".equals(path)) return false;
+        if (resourceExists("/index.html") || resourceExists("/index.jsp")) {
+            defaultServe(req, res);
+            return true;
+        } else {
+            try (PrintWriter out = res.getWriter()) {
+                res.setContentType("text/html;charset=UTF-8");
+                out.println("<html><head><title>Accueil</title></head><body><h1>Bienvenue</h1><p>Racine de l'application.</p></body></html>");
+            }
+            return true;
+        }
+    }
+
+    // handle exact mapping from scanResult.urlToMethod
+    private boolean handleExactMapping(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
+        Method m = scanResultContext.urlToMethod.get(path);
+        if (m == null) return false;
+
+        invokeAndRender(m, req, res, new Object[0]);
+        return true;
+    }
+
+    // handle pattern mappings like /test/{id}
+    private boolean handlePatternMapping(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
+        List<UrlPattern> patterns = scanResultContext.patterns;
+        for (UrlPattern p : patterns) {
+            Matcher matcher = p.regex.matcher(path);
+            if (matcher.matches()) {
+                // extraire les groupes et convertir en types simples (String, int, long)
+                Class<?>[] paramTypes = p.method.getParameterTypes();
+                Object[] args = new Object[paramTypes.length];
+                // remplir avec les groupes capturés (si plus de groupes que params, on s'arrête)
+                for (int i = 0; i < paramTypes.length && i < matcher.groupCount(); i++) {
+                    String val = matcher.group(i + 1);
+                    Class<?> t = paramTypes[i];
+                    args[i] = convertString(val, t);
+                    // aussi exposer dans request attributes nommés group1, group2...
+                    req.setAttribute("pathVar" + (i + 1), val);
+                }
+                invokeAndRender(p.method, req, res, args);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //Invocation centrale qui instancie la classe, appelle la méthode et gère les retours (String / ModelView / void)
+    private void invokeAndRender(Method m, HttpServletRequest req, HttpServletResponse res, Object[] args) throws ServletException, IOException {
+        ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
+        Class<?> cls = m.getDeclaringClass();
+        boolean isController = scanResultContext.controllerClasses.contains(cls);
+
+        try {
+            res.setContentType("text/plain;charset=UTF-8");
+            try (PrintWriter out = res.getWriter()) {
+                if (!isController) {
+                    out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
+                    return;
+                }
+                // instancier et invoquer la methode
+                Object instance = cls.getDeclaredConstructor().newInstance();
+
+                out.printf("Classe: %s%n", cls.getName());
+                out.printf("Methode: %s%n", m.getName());
+
+                try {
+                    m.setAccessible(true); // permet d'appeler même si private
+                    Object result = (args == null || args.length == 0) ? m.invoke(instance) : m.invoke(instance, args);
+
+                    if (result instanceof String) {
+                        out.printf("Methode string invoquee : %s", (String) result);
+                    } else if (result instanceof view.ModelView) {
+                        view.ModelView mv = (view.ModelView) result;
+                        String vue = mv.getView();
+
+                        for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                            req.setAttribute(entry.getKey(), entry.getValue());
+                        }
+                        // rediriger vers la page JSP
+                        RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
+                        dispatcher.forward(req, res);
+                        return;
+                    } else {
+                        // void ou autre type -> rien d'autre à faire
+                    }
+                } catch (IllegalAccessException | InvocationTargetException ex) {
+                    out.println("Erreur invocation: " + ex.getMessage());
+                }
+            }
+        } catch (Exception ex) {
+            throw new ServletException(ex);
+        }
+    }
+
+    // convertit une chaîne vers un type basique supporté
+    private Object convertString(String val, Class<?> t) {
+        if (t == String.class) return val;
+        if (t == int.class || t == Integer.class) {
+            try { return Integer.parseInt(val); } catch (NumberFormatException e) { return 0; }
+        }
+        if (t == long.class || t == Long.class) {
+            try { return Long.parseLong(val); } catch (NumberFormatException e) { return 0L; }
+        }
+        // fallback -> renvoyer la chaîne
+        return val;
+    }
 
     private void customServe(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try (PrintWriter out = res.getWriter()) {
