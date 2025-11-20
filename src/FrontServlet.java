@@ -16,11 +16,6 @@ import util.ControllerScanner;
 import util.ControllerScanner.ScanResult;
 import util.UrlPattern;
 
-/**
- * This is the servlet that takes all incoming requests targeting the app - If
- * the requested resource exists, it delegates to the default dispatcher - else
- * it shows the requested URL
- */
 public class FrontServlet extends HttpServlet {
 
     RequestDispatcher defaultDispatcher;
@@ -187,6 +182,26 @@ public class FrontServlet extends HttpServlet {
         return val;
     }
 
+    // private Object[] buildArgsFromRequest(Method m, HttpServletRequest req) {
+    //     Parameter[] params = m.getParameters();
+    //     Object[] args = new Object[params.length];
+
+    //     for (int i = 0; i < params.length; i++) {
+    //         Parameter p = params[i];
+
+    //         // Java garde le vrai nom du paramètre SEULEMENT si -parameters est activé
+    //         String paramName = p.getName();
+
+    //         // récupère la valeur que le formulaire envoie avec le même "name"
+    //         String rawValue = req.getParameter(paramName);
+
+    //         // conversion automatique en int, double, etc.
+    //         args[i] = convertString(rawValue, p.getType());
+    //     }
+
+    //     return args;
+    // }
+
     private Object[] buildArgsFromRequest(Method m, HttpServletRequest req) {
         Parameter[] params = m.getParameters();
         Object[] args = new Object[params.length];
@@ -194,18 +209,29 @@ public class FrontServlet extends HttpServlet {
         for (int i = 0; i < params.length; i++) {
             Parameter p = params[i];
 
-            // Java garde le vrai nom du paramètre SEULEMENT si -parameters est activé
-            String paramName = p.getName();
+            // 1) Vérifier si le paramètre a @RequestParam
+            annotation.RequestParam rp = p.getAnnotation(annotation.RequestParam.class);
 
-            // récupère la valeur que le formulaire envoie avec le même "name"
+            String paramName = null;
+
+            if (rp != null) {
+                // récupérer le nom du paramètre dans l'annotation
+                paramName = rp.value();
+            } else {
+                // sinon prendre le nom réel du paramètre
+                paramName = p.getName();
+            }
+
+            // 2) valeur envoyée par le formulaire
             String rawValue = req.getParameter(paramName);
 
-            // conversion automatique en int, double, etc.
+            // 3) conversion
             args[i] = convertString(rawValue, p.getType());
         }
 
         return args;
     }
+
 
 
     private void customServe(HttpServletRequest req, HttpServletResponse res) throws IOException {
