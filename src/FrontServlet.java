@@ -96,6 +96,7 @@ public class FrontServlet extends HttpServlet {
         return true;
     }
 
+    // sprint6 ter deja gere ici
     // handle pattern mappings like /test/{id}
     private boolean handlePatternMapping(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
@@ -181,26 +182,6 @@ public class FrontServlet extends HttpServlet {
         // fallback -> renvoyer la chaîne
         return val;
     }
-
-    // private Object[] buildArgsFromRequest(Method m, HttpServletRequest req) {
-    //     Parameter[] params = m.getParameters();
-    //     Object[] args = new Object[params.length];
-
-    //     for (int i = 0; i < params.length; i++) {
-    //         Parameter p = params[i];
-
-    //         // Java garde le vrai nom du paramètre SEULEMENT si -parameters est activé
-    //         String paramName = p.getName();
-
-    //         // récupère la valeur que le formulaire envoie avec le même "name"
-    //         String rawValue = req.getParameter(paramName);
-
-    //         // conversion automatique en int, double, etc.
-    //         args[i] = convertString(rawValue, p.getType());
-    //     }
-
-    //     return args;
-    // }
 
     private Object[] buildArgsFromRequest(Method m, HttpServletRequest req) {
         Parameter[] params = m.getParameters();
