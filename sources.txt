@@ -5,3 +5,5 @@ src/FrontServlet.java
 src/annotation/URLMapping.java
 src/annotation/ControllerAnnotation.java
 src/annotation/RequestParam.java
+src/annotation/GetMapping.java
+src/annotation/PostMapping.java

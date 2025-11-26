@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 
+import annotation.GetMapping;
+import annotation.PostMapping;
+import annotation.URLMapping;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
@@ -25,14 +28,6 @@ public class FrontServlet extends HttpServlet {
     public void init() {
         defaultDispatcher = getServletContext().getNamedDispatcher("default");
         scanResult = ControllerScanner.scan(getServletContext());
-        // debug : lister les mappings trouvés
-        for (Map.Entry<String, Method> e : scanResult.urlToMethod.entrySet()) {
-            System.out.println("Mapped URL: " + e.getKey() + " -> " + e.getValue().getDeclaringClass().getName() + "#" + e.getValue().getName());
-        }
-        for (UrlPattern p : scanResult.patterns) {
-            System.out.println("Mapped PATTERN: " + p.rawPattern + " -> " + p.method.getDeclaringClass().getName() + "#" + p.method.getName());
-        }
-
         getServletContext().setAttribute("scanResult", scanResult);
     }
 
@@ -61,7 +56,6 @@ public class FrontServlet extends HttpServlet {
         customServe(req, res);
     }
 
-    // ...existing code...
     private boolean resourceExists(String path) {
         try {
             return getServletContext().getResource(path) != null;
@@ -88,12 +82,33 @@ public class FrontServlet extends HttpServlet {
     // handle exact mapping from scanResult.urlToMethod
     private boolean handleExactMapping(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
-        Method m = scanResultContext.urlToMethod.get(path);
-        if (m == null) return false;
 
-        Object[] args = buildArgsFromRequest(m, req);
-        invokeAndRender(m, req, res, args);
+        List<Method> methods = scanResultContext.urlToMethods.get(path);
+        if (methods == null) return false;
+
+        String httpVerb = req.getMethod();  
+        Method selected = null;
+
+        for (Method m : methods) {
+            if ("GET".equals(httpVerb) && m.isAnnotationPresent(GetMapping.class)) {
+                selected = m;
+                break;
+            }
+            if ("POST".equals(httpVerb) && m.isAnnotationPresent(PostMapping.class)) {
+                selected = m;
+                break;
+            }
+            if (m.isAnnotationPresent(URLMapping.class)) {
+                selected = m;
+                break;
+            }
+        }
+        if (selected == null) return false;
+
+        Object[] args = buildArgsFromRequest(selected, req);
+        invokeAndRender(selected, req, res, args);
         return true;
+
     }
 
     // sprint6 ter deja gere ici
@@ -101,18 +116,17 @@ public class FrontServlet extends HttpServlet {
     private boolean handlePatternMapping(String path, HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
         List<UrlPattern> patterns = scanResultContext.patterns;
+        String httpVerb = req.getMethod();
         for (UrlPattern p : patterns) {
+            if ("GET".equalsIgnoreCase(httpVerb) && p.method.isAnnotationPresent(PostMapping.class)) continue;
+            if ("POST".equalsIgnoreCase(httpVerb) && p.method.isAnnotationPresent(GetMapping.class)) continue;
             Matcher matcher = p.regex.matcher(path);
             if (matcher.matches()) {
-                // extraire les groupes et convertir en types simples (String, int, long)
                 Class<?>[] paramTypes = p.method.getParameterTypes();
                 Object[] args = new Object[paramTypes.length];
-                // remplir avec les groupes capturés (si plus de groupes que params, on s'arrête)
                 for (int i = 0; i < paramTypes.length && i < matcher.groupCount(); i++) {
                     String val = matcher.group(i + 1);
-                    Class<?> t = paramTypes[i];
-                    args[i] = convertString(val, t);
-                    // aussi exposer dans request attributes nommés group1, group2...
+                    args[i] = convertString(val, paramTypes[i]);
                     req.setAttribute("pathVar" + (i + 1), val);
                 }
                 invokeAndRender(p.method, req, res, args);

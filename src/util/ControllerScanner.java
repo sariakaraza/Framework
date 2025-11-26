@@ -11,12 +11,15 @@ import java.util.Map;
 import java.util.Set;
 
 import annotation.ControllerAnnotation;
+import annotation.GetMapping;
+import annotation.PostMapping;
 import annotation.URLMapping;
 
 public class ControllerScanner {
 
     public static class ScanResult {
-        public final Map<String, Method> urlToMethod = new HashMap<>();
+        // public final Map<String, Method> urlToMethod = new HashMap<>();
+        public final Map<String, List<Method>> urlToMethods = new HashMap<>();
         public final Set<Class<?>> controllerClasses = new HashSet<>();
         public final List<UrlPattern> patterns = new ArrayList<>();
     }
@@ -31,6 +34,19 @@ public class ControllerScanner {
         return result;
     }
 
+    private static void registerPath(String path, Method m, ScanResult result) {
+        if (path == null || path.isEmpty()) return;
+        if (!path.startsWith("/")) path = "/" + path;
+        if (path.contains("{")) {
+            result.patterns.add(new UrlPattern(path, m));
+        } else {
+            result.urlToMethods
+                  .computeIfAbsent(path, k -> new ArrayList<>())
+                  .add(m);
+        }
+    }
+
+    
     private static void scanDir(File root, File current, ClassLoader loader, ScanResult result) {
         File[] children = current.listFiles();
         if (children == null) return;
@@ -49,19 +65,17 @@ public class ControllerScanner {
                     }
                     for (Method m : cls.getDeclaredMethods()) {
                         if (m.isAnnotationPresent(URLMapping.class)) {
-                            URLMapping u = m.getAnnotation(URLMapping.class);
-                            String path = u.value();
-                            if (!path.startsWith("/")) path = "/" + path;
-                            // result.urlToMethod.put(path, m);
-                            if (path.contains("{")) {
-                                result.patterns.add(new UrlPattern(path, m));
-                            } else {
-                                result.urlToMethod.put(path, m);
-                            }
+                            registerPath(m.getAnnotation(URLMapping.class).value(), m, result);
+                        }
+                        if (m.isAnnotationPresent(GetMapping.class)) {
+                            registerPath(m.getAnnotation(GetMapping.class).value(), m, result);
+                        }
+                        if (m.isAnnotationPresent(PostMapping.class)) {
+                            registerPath(m.getAnnotation(PostMapping.class).value(), m, result);
                         }
                     }
                 } catch (ClassNotFoundException | NoClassDefFoundError e) {
-                    // classe non disponible sur le classpath au runtime ; ignorer
+                    // ignore
                 }
             }
         }
