@@ -230,7 +230,7 @@ public class FrontServlet extends HttpServlet {
             Parameter p = params[i];
             Class<?> type = p.getType();
 
-            // ✔️ 1) Cas spécial : paramètre Map<String, Object>
+            // 1) Cas spécial : paramètre Map<String, Object>
             if (Map.class.isAssignableFrom(type)) {
                 Map<String, String[]> rawMap = req.getParameterMap();
                 Map<String, Object> result = new java.util.HashMap<>();
@@ -248,7 +248,13 @@ public class FrontServlet extends HttpServlet {
                 continue;
             }
 
-            // ✔️ 2) Cas normal : @RequestParam ou nom du paramètre
+            if (!type.isPrimitive() && !type.getName().startsWith("java.")) {
+                String prefix = p.getName();
+                args[i] = buildBeanFromPrefix(prefix, type, req);
+                continue;
+            }
+
+            // 2) Cas normal : @RequestParam ou nom du paramètre
             annotation.RequestParam rp = p.getAnnotation(annotation.RequestParam.class);
             String paramName = (rp != null) ? rp.value() : p.getName();
             String rawValue = req.getParameter(paramName);
@@ -258,6 +264,54 @@ public class FrontServlet extends HttpServlet {
 
         return args;
     }
+
+    private Object buildBeanFromPrefix(String prefix, Class<?> beanClass, HttpServletRequest req) {
+        try {
+            Object bean = beanClass.getDeclaredConstructor().newInstance();
+            Map<String, String[]> params = req.getParameterMap();
+
+            for (String key : params.keySet()) {
+                if (key.startsWith(prefix + ".")) {
+
+                    // e.departement.nom → ["departement", "nom"]
+                    String[] parts = key.substring(prefix.length() + 1).split("\\.");
+
+                    Object current = bean;
+                    Class<?> currentClass = beanClass;
+
+                    for (int i = 0; i < parts.length; i++) {
+
+                        String fieldName = parts[i];
+                        java.lang.reflect.Field field = currentClass.getDeclaredField(fieldName);
+                        field.setAccessible(true);
+
+                        if (i == parts.length - 1) {
+                            // Dernier élément → setter simple
+                            String value = req.getParameter(key);
+                            Object converted = autoConvert(value);
+                            field.set(current, converted);
+                        } else {
+                            // On descend dans l'objet imbriqué
+                            Object nested = field.get(current);
+                            if (nested == null) {
+                                nested = field.getType().getDeclaredConstructor().newInstance();
+                                field.set(current, nested);
+                            }
+                            current = nested;
+                            currentClass = field.getType();
+                        }
+                    }
+                }
+            }
+
+            return bean;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
 
     private Object autoConvert(String val) {
         if (val == null) return null;
