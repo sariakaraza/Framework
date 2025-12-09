@@ -18,6 +18,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import util.ControllerScanner;
 import util.ControllerScanner.ScanResult;
 import util.UrlPattern;
+import annotation.*;
+import java.lang.reflect.*;
 
 public class FrontServlet extends HttpServlet {
 
@@ -154,43 +156,67 @@ public class FrontServlet extends HttpServlet {
     // retours (String / ModelView / void)
     private void invokeAndRender(Method m, HttpServletRequest req, HttpServletResponse res, Object[] args)
             throws ServletException, IOException {
+
         ScanResult scanResultContext = (ScanResult) getServletContext().getAttribute("scanResult");
         Class<?> cls = m.getDeclaringClass();
         boolean isController = scanResultContext.controllerClasses.contains(cls);
+        boolean isJson = m.isAnnotationPresent(annotation.JSON.class);
 
         try {
-            res.setContentType("text/plain;charset=UTF-8");
+            // ✅ NE PAS écrire de contentType ici pour le JSON
+            if (!isJson) {
+                res.setContentType("text/plain;charset=UTF-8");
+            }
+
             try (PrintWriter out = res.getWriter()) {
+
                 if (!isController) {
                     out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
                     return;
                 }
-                // instancier et invoquer la methode
+
                 Object instance = cls.getDeclaredConstructor().newInstance();
 
-                out.printf("Classe: %s%n", cls.getName());
-                out.printf("Methode: %s%n", m.getName());
+                // ✅ Logs UNIQUEMENT si PAS JSON
+                if (!isJson) {
+                    out.printf("Classe: %s%n", cls.getName());
+                    out.printf("Methode: %s%n", m.getName());
+                }
 
                 try {
-                    m.setAccessible(true); // permet d'appeler même si private
-                    Object result = (args == null || args.length == 0) ? m.invoke(instance) : m.invoke(instance, args);
+                    m.setAccessible(true);
+                    Object result = (args == null || args.length == 0)
+                            ? m.invoke(instance)
+                            : m.invoke(instance, args);
 
+                    /* =================== JSON =================== */
+                    if (isJson) {
+                        res.setContentType("application/json;charset=UTF-8");
+
+                        String json = util.JsonUtil.toJson(result);
+                        out.print(json);
+                        return;
+                    }
+
+                    /* =================== TON CODE ACTUEL =================== */
                     if (result instanceof String) {
                         out.printf("Methode string invoquee : %s", (String) result);
+
                     } else if (result instanceof view.ModelView) {
+
                         view.ModelView mv = (view.ModelView) result;
                         String vue = mv.getView();
 
                         for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
                             req.setAttribute(entry.getKey(), entry.getValue());
                         }
-                        // rediriger vers la page JSP
+
                         RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
                         dispatcher.forward(req, res);
                         return;
-                    } else {
-                        // void ou autre type -> rien d'autre à faire
                     }
+                    // void ou autre : rien à faire
+
                 } catch (IllegalAccessException | InvocationTargetException ex) {
                     out.println("Erreur invocation: " + ex.getMessage());
                 }
@@ -312,21 +338,22 @@ public class FrontServlet extends HttpServlet {
         }
     }
 
-
     private Object autoConvert(String val) {
-        if (val == null) return null;
+        if (val == null)
+            return null;
 
         try {
             return Integer.parseInt(val);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
 
         try {
             return Long.parseLong(val);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
 
         return val;
     }
-
 
     private void customServe(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try (PrintWriter out = res.getWriter()) {
