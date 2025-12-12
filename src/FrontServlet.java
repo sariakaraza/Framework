@@ -162,68 +162,106 @@ public class FrontServlet extends HttpServlet {
         boolean isController = scanResultContext.controllerClasses.contains(cls);
         boolean isJson = m.isAnnotationPresent(annotation.JSON.class);
 
+        PrintWriter out = res.getWriter();
+
         try {
-            // ✅ NE PAS écrire de contentType ici pour le JSON
-            if (!isJson) {
-                res.setContentType("text/plain;charset=UTF-8");
+            if (!isController) {
+                if (isJson) {
+                    sendJsonEnvelope(res, out, Map.of("message", "Classe non annotée @Controller"), false, "500");
+                } else {
+                    res.setContentType("text/plain;charset=UTF-8");
+                    out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
+                }
+                return;
             }
 
-            try (PrintWriter out = res.getWriter()) {
+            Object instance = cls.getDeclaredConstructor().newInstance();
 
-                if (!isController) {
-                    out.printf("NON ANNOTEE PAR LE ControllerAnnotation : %s%n", cls.getName());
+            // Logs si ce n’est pas JSON
+            if (!isJson) {
+                res.setContentType("text/plain;charset=UTF-8");
+                out.printf("Classe: %s%n", cls.getName());
+                out.printf("Methode: %s%n", m.getName());
+            }
+
+            Object result;
+            try {
+                m.setAccessible(true);
+                result = (args == null || args.length == 0)
+                        ? m.invoke(instance)
+                        : m.invoke(instance, args);
+
+            } catch (InvocationTargetException ex) {
+
+                Throwable cause = ex.getTargetException(); 
+
+                if (isJson) {
+                    sendJsonEnvelope(
+                        res,
+                        out,
+                        Map.of("message", cause.getMessage()),
+                        false,
+                        "500"
+                    );
                     return;
                 }
 
-                Object instance = cls.getDeclaredConstructor().newInstance();
-
-                // ✅ Logs UNIQUEMENT si PAS JSON
-                if (!isJson) {
-                    out.printf("Classe: %s%n", cls.getName());
-                    out.printf("Methode: %s%n", m.getName());
-                }
-
-                try {
-                    m.setAccessible(true);
-                    Object result = (args == null || args.length == 0)
-                            ? m.invoke(instance)
-                            : m.invoke(instance, args);
-
-                    /* =================== JSON =================== */
-                    if (isJson) {
-                        res.setContentType("application/json;charset=UTF-8");
-
-                        String json = util.JsonUtil.toJson(result);
-                        out.print(json);
-                        return;
-                    }
-
-                    /* =================== TON CODE ACTUEL =================== */
-                    if (result instanceof String) {
-                        out.printf("Methode string invoquee : %s", (String) result);
-
-                    } else if (result instanceof view.ModelView) {
-
-                        view.ModelView mv = (view.ModelView) result;
-                        String vue = mv.getView();
-
-                        for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
-                            req.setAttribute(entry.getKey(), entry.getValue());
-                        }
-
-                        RequestDispatcher dispatcher = req.getRequestDispatcher("/" + vue);
-                        dispatcher.forward(req, res);
-                        return;
-                    }
-                    // void ou autre : rien à faire
-
-                } catch (IllegalAccessException | InvocationTargetException ex) {
-                    out.println("Erreur invocation: " + ex.getMessage());
-                }
+                res.setContentType("text/plain;charset=UTF-8");
+                out.println("Erreur invocation: " + cause.getMessage());
+                return;
             }
+
+            /* =================== JSON SUCCESS =================== */
+            if (isJson) {
+                sendJsonEnvelope(res, out, result, true, "200");
+                return;
+            }
+
+            /* =================== STRING =================== */
+            if (result instanceof String) {
+                out.printf("Methode string invoquee : %s", (String) result);
+                return;
+            }
+
+            /* =================== ModelView =================== */
+            if (result instanceof view.ModelView mv) {
+                for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                    req.setAttribute(entry.getKey(), entry.getValue());
+                }
+                RequestDispatcher dispatcher = req.getRequestDispatcher("/" + mv.getView());
+                dispatcher.forward(req, res);
+                return;
+            }
+
         } catch (Exception ex) {
             throw new ServletException(ex);
         }
+    }
+
+    private void sendJsonEnvelope(HttpServletResponse res, PrintWriter out, Object payload, boolean success, String code) {
+        int count = 0;
+        if (payload instanceof java.util.Collection<?> col) {
+            count = col.size();
+        } else if (payload != null) {
+            count = 1;
+        }
+        
+        util.JsonResponse envelope = new util.JsonResponse(
+            success ? "success" : "error",
+            code,
+            count,
+            payload
+        );
+        
+        // ✅ Définit le code de statut HTTP (500 pour erreur)
+        if (!success) {
+            res.setStatus(Integer.parseInt(code));
+        }
+        
+        res.setContentType("application/json;charset=UTF-8");
+        String json = util.JsonUtil.toJson(envelope);
+        out.print(json);
+        out.flush();  // ✅ Force l'envoi immédiat de la réponse
     }
 
     // convertit une chaîne vers un type basique supporté
