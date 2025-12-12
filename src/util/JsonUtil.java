@@ -9,6 +9,17 @@ public class JsonUtil {
         if (obj == null) return "null";
         if (obj instanceof String) return "\"" + escapeJson((String) obj) + "\"";
         if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
+        if (obj instanceof java.util.Collection<?> col) {
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : col) {
+                if (!first) sb.append(",");
+                sb.append(toJson(item));  // Récursion pour chaque item
+                first = false;
+            }
+            sb.append("]");
+            return sb.toString();
+        }
         if (obj instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) obj;
             StringBuilder sb = new StringBuilder("{");
