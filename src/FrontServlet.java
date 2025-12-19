@@ -3,6 +3,9 @@ import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -17,10 +20,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import util.ControllerScanner;
 import util.ControllerScanner.ScanResult;
+import util.MultipartHelper;
+import util.UploadedFile;
 import util.UrlPattern;
-import annotation.*;
-import java.lang.reflect.*;
+import jakarta.servlet.annotation.MultipartConfig;
 
+@MultipartConfig
 public class FrontServlet extends HttpServlet {
 
     RequestDispatcher defaultDispatcher;
@@ -193,16 +198,15 @@ public class FrontServlet extends HttpServlet {
 
             } catch (InvocationTargetException ex) {
 
-                Throwable cause = ex.getTargetException(); 
+                Throwable cause = ex.getTargetException();
 
                 if (isJson) {
                     sendJsonEnvelope(
-                        res,
-                        out,
-                        Map.of("message", cause.getMessage()),
-                        false,
-                        "500"
-                    );
+                            res,
+                            out,
+                            Map.of("message", cause.getMessage()),
+                            false,
+                            "500");
                     return;
                 }
 
@@ -238,30 +242,30 @@ public class FrontServlet extends HttpServlet {
         }
     }
 
-    private void sendJsonEnvelope(HttpServletResponse res, PrintWriter out, Object payload, boolean success, String code) {
+    private void sendJsonEnvelope(HttpServletResponse res, PrintWriter out, Object payload, boolean success,
+            String code) {
         int count = 0;
         if (payload instanceof java.util.Collection<?> col) {
             count = col.size();
         } else if (payload != null) {
             count = 1;
         }
-        
+
         util.JsonResponse envelope = new util.JsonResponse(
-            success ? "success" : "error",
-            code,
-            count,
-            payload
-        );
-        
+                success ? "success" : "error",
+                code,
+                count,
+                payload);
+
         // ✅ Définit le code de statut HTTP (500 pour erreur)
         if (!success) {
             res.setStatus(Integer.parseInt(code));
         }
-        
+
         res.setContentType("application/json;charset=UTF-8");
         String json = util.JsonUtil.toJson(envelope);
         out.print(json);
-        out.flush();  // ✅ Force l'envoi immédiat de la réponse
+        out.flush(); // ✅ Force l'envoi immédiat de la réponse
     }
 
     // convertit une chaîne vers un type basique supporté
@@ -294,14 +298,37 @@ public class FrontServlet extends HttpServlet {
             Parameter p = params[i];
             Class<?> type = p.getType();
 
-            // 1) Cas spécial : paramètre Map<String, Object>
+            // 1) Cas Map<...>
             if (Map.class.isAssignableFrom(type)) {
+
+                // inspection des types génériques
+                Type genericType = p.getParameterizedType();
+
+                if (genericType instanceof ParameterizedType pt) {
+                    Type[] types = pt.getActualTypeArguments();
+
+                    // Map<String, List<UploadedFile>>
+                    if (types.length == 2
+                            && types[0] == String.class
+                            && types[1] instanceof ParameterizedType listType
+                            && listType.getRawType() == List.class
+                            && listType.getActualTypeArguments()[0] == UploadedFile.class) {
+
+                        try {
+                            args[i] = MultipartHelper.filesGroupedByInput(req);
+                        } catch (Exception e) {
+                            throw new RuntimeException("Erreur lecture multipart", e);
+                        }
+                        continue;
+                    }
+                }
+
+                // fallback : Map<String, Object> classique
                 Map<String, String[]> rawMap = req.getParameterMap();
-                Map<String, Object> result = new java.util.HashMap<>();
+                Map<String, Object> result = new HashMap<>();
 
                 rawMap.forEach((key, values) -> {
                     if (values != null && values.length == 1) {
-                        // conversion simple
                         result.put(key, autoConvert(values[0]));
                     } else {
                         result.put(key, values);
@@ -312,13 +339,14 @@ public class FrontServlet extends HttpServlet {
                 continue;
             }
 
+            // 2) Bean complexe
             if (!type.isPrimitive() && !type.getName().startsWith("java.")) {
                 String prefix = p.getName();
                 args[i] = buildBeanFromPrefix(prefix, type, req);
                 continue;
             }
 
-            // 2) Cas normal : @RequestParam ou nom du paramètre
+            // 3) Paramètre simple
             annotation.RequestParam rp = p.getAnnotation(annotation.RequestParam.class);
             String paramName = (rp != null) ? rp.value() : p.getName();
             String rawValue = req.getParameter(paramName);
